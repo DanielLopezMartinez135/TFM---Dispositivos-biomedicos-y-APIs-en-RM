@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Management - Biometric API</title>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="dashboard-wrapper">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div>
+                <!-- Logo -->
+                <div class="logo-container">
+                    <div class="logo-icon">
+                        <i class="fa-solid fa-heart-pulse"></i>
+                    </div>
+                    <div class="logo-text">Biometric API</div>
+                </div>
+
+                <!-- Nav Menu -->
+                <nav>
+                    <ul class="nav-menu">
+                        <li>
+                            <a class="nav-link" href="/dashboard">
+                                <i class="fa-solid fa-chart-pie"></i>
+                                <span>Dashboard</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a class="nav-link active" href="/dispositivos">
+                                <i class="fa-solid fa-mobile-screen-button"></i>
+                                <span>Devices</span>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+
+            <!-- Logout button in Sidebar -->
+            <div>
+                <button class="btn btn-secondary" onclick="logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>Sign Out</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1>Device Management</h1>
+                    <p style="color: var(--text-secondary); margin-top: 4px;">Connect external health providers and manage your biometric sensors.</p>
+                </div>
+                
+                <!-- Active User Badge -->
+                <div class="user-profile">
+                    <div class="user-avatar" id="avatarLetter">U</div>
+                    <span class="user-name" id="usuario">Loading profile...</span>
+                </div>
+            </header>
+
+            <!-- Alert Notification Box -->
+            <div id="alertBox" class="alert" style="display: none;"></div>
+
+            <!-- Integrations Catalog Section -->
+            <section style="margin-bottom: 40px;">
+                <h2 style="font-size: 1.25rem; margin-bottom: 20px;">Health Integrations</h2>
+                <div class="catalog-grid" id="listaProveedores">
+                    <!-- Dynamic rendering of integration cards -->
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--text-secondary);">
+                        <i class="fa-solid fa-circle-notch spin" style="font-size: 2.0rem; margin-bottom: 10px; color: var(--accent-cyan);"></i>
+                        <p>Loading health providers...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Connected Devices Section -->
+            <section>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                    <h2 style="font-size: 1.25rem;">Connected Devices</h2>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary" id="btnCustomDevice" onclick="abrirCustomDeviceModal()" style="width: auto;">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Register Custom Device</span>
+                        </button>
+                        <button class="btn btn-secondary" id="btnSincronizar" onclick="sincronizarDispositivos()" style="width: auto;">
+                            <i class="fa-solid fa-arrows-rotate" id="syncIcon"></i>
+                            <span>Sync devices</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="device-list" id="listaDispositivos">
+                    <div style="text-align: center; padding: 40px 0; color: var(--text-secondary);">
+                        <i class="fa-solid fa-circle-notch spin" style="font-size: 2.0rem; margin-bottom: 10px; color: var(--accent-cyan);"></i>
+                        <p>Loading device list...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const providerDetails = {
+            "withings": {
+                name: "Withings Health",
+                desc: "Syncs body weight, blood pressure, heart rate, and sleep data.",
+                logo: "fa-heart-pulse",
+                logoColor: "#06b6d4"
+            },
+            "default": {
+                name: "External Provider",
+                desc: "Compatible biometric health integration.",
+                logo: "fa-circle-nodes",
+                logoColor: "#9ca3af"
+            }
+        };
+
+        async function cargarUsuario() {
+            const token = localStorage.getItem("access_token");
+
+            if (!token) {
+                window.location.href = "/login";
+                return false;
+            }
+
+            try {
+                const response = await fetch("/auth/me", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    localStorage.removeItem("access_token");
+                    window.location.href = "/login";
+                    return false;
+                }
+
+                const usuario = await response.json();
+                document.getElementById("usuario").innerText = usuario.username;
+                
+                // Set avatar letter
+                if (usuario.username && usuario.username.length > 0) {
+                    document.getElementById("avatarLetter").innerText = usuario.username[0].toUpperCase();
+                }
+
+                return true;
+            } catch (e) {
+                console.error("Error loading user profile:", e);
+                return false;
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem("access_token");
+            window.location.href = "/login";
+        }
+
+        function mostrarAlerta(texto, tipo = "success") {
+            const alertBox = document.getElementById("alertBox");
+            alertBox.innerText = texto;
+            alertBox.className = `alert alert-${tipo} fade-in`;
+            alertBox.style.display = "flex";
+
+            if (tipo !== "loading") {
+                setTimeout(() => {
+                    alertBox.style.display = "none";
+                }, 5000);
+            }
+        }
+
+        async function cargarProveedores() {
+            const token = localStorage.getItem("access_token");
+            const container = document.getElementById("listaProveedores");
+
+            try {
+                const response = await fetch("/catalogo/proveedores", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    container.innerHTML = `
+                        <div style="grid-column: 1 / -1; color: var(--accent-rose); text-align: center; padding: 20px;">
+                            <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                            <p>Could not load compatible providers.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const proveedores = await response.json();
+
+                if (proveedores.length === 0) {
+                    container.innerHTML = `
+                        <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-secondary);">
+                            <i class="fa-solid fa-folder-open" style="font-size: 2.5rem; margin-bottom: 15px; color: var(--text-muted);"></i>
+                            <p>No integrated providers available in the catalog.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = "";
+                proveedores.forEach(proveedor => {
+                    const detail = providerDetails[proveedor.toLowerCase()] || providerDetails["default"];
+                    const isWithings = proveedor.toLowerCase() === "withings";
+
+                    html += `
+                        <div class="glass-panel catalog-card fade-in">
+                            <div class="catalog-info">
+                                <div class="provider-logo-box" style="color: ${detail.logoColor}; border-color: rgba(255, 255, 255, 0.05);">
+                                    <i class="fa-solid ${detail.logo}"></i>
+                                </div>
+                                <div>
+                                    <h3 class="provider-name">${detail.name}</h3>
+                                    <p class="provider-desc">${detail.desc}</p>
+                                </div>
+                            </div>
+                            <div>
+                                ${isWithings ? `
+                                    <button class="btn btn-primary" onclick="conectarWithings()">
+                                        <i class="fa-solid fa-link"></i>
+                                        <span>Connect Withings</span>
+                                    </button>
+                                ` : `
+                                    <button class="btn btn-secondary" disabled>
+                                        <span>Not Configured</span>
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = html;
+
+            } catch (e) {
+                console.error("Error loading provider catalog:", e);
+                container.innerHTML = `
+                    <div style="grid-column: 1 / -1; color: var(--accent-rose); text-align: center; padding: 20px;">
+                        <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                        <p>Network error while loading integration catalog.</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function conectarWithings() {
+            const token = localStorage.getItem("access_token");
+            mostrarAlerta("Initiating connection with Withings...", "loading");
+
+            try {
+                const response = await fetch("/proveedores/withings/conectar", {
+                    method: "GET",
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    mostrarAlerta("Could not initiate Withings connection. Verify API configuration.", "error");
+                    return;
+                }
+
+                const data = await response.json();
+                window.location.href = data.auth_url;
+
+            } catch (e) {
+                console.error("Error connecting with Withings:", e);
+                mostrarAlerta("Error reaching authentication endpoint.", "error");
+            }
+        }
+
+        async function sincronizarDispositivos() {
+            const token = localStorage.getItem("access_token");
+            const syncIcon = document.getElementById("syncIcon");
+            const btnSincronizar = document.getElementById("btnSincronizar");
+
+            btnSincronizar.disabled = true;
+            syncIcon.classList.add("spin");
+            mostrarAlerta("Searching for registered devices in Withings...", "loading");
+
+            try {
+                const response = await fetch("/proveedores/withings/sincronizar_dispositivos", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    mostrarAlerta("Could not synchronize devices.", "error");
+                    return;
+                }
+
+                await cargarDispositivos();
+                mostrarAlerta("Devices synchronized successfully.", "success");
+
+            } catch (e) {
+                console.error("Error synchronizing devices:", e);
+                mostrarAlerta("Error connecting to the sensor synchronization API.", "error");
+            } finally {
+                btnSincronizar.disabled = false;
+                syncIcon.classList.remove("spin");
+            }
+        }
+
+        async function cargarDispositivos() {
+            const token = localStorage.getItem("access_token");
+            const container = document.getElementById("listaDispositivos");
+
+            try {
+                const response = await fetch("/mis_dispositivos", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    container.innerHTML = `
+                        <div class="empty-state fade-in" style="color: var(--accent-rose);">
+                            <div class="empty-state-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+                            <h3>Loading Error</h3>
+                            <p style="margin-top: 8px;">Could not retrieve your linked devices.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const dispositivos = await response.json();
+
+                if (dispositivos.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state fade-in">
+                            <div class="empty-state-icon"><i class="fa-solid fa-mobile-retro"></i></div>
+                            <h3>No Connected Sensors</h3>
+                            <p style="margin-top: 8px;">No devices associated with your account. Connect with a provider above.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = "";
+                dispositivos.forEach(d => {
+                    const statusBadge = d.active 
+                        ? '<span class="badge badge-success"><i class="fa-solid fa-circle-check"></i> Active</span>'
+                        : '<span class="badge badge-danger"><i class="fa-solid fa-circle-xmark"></i> Inactive</span>';
+
+                    html += `
+                        <div class="glass-panel device-item fade-in">
+                            <div class="device-info-wrapper">
+                                <div class="device-avatar-icon">
+                                    <i class="fa-solid fa-microchip"></i>
+                                </div>
+                                <div>
+                                    <div class="device-item-name">${d.name}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+                                        External ID: ${d.external_id || "N/A"}
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                ${statusBadge}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = html;
+
+            } catch (e) {
+                console.error("Error loading devices:", e);
+                container.innerHTML = `
+                    <div class="empty-state fade-in" style="color: var(--accent-rose);">
+                        <div class="empty-state-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+                        <h3>Connection Error</h3>
+                        <p style="margin-top: 8px;">Could not establish connection with the server.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function mostrarMensajeOAuth() {
+            const params = new URLSearchParams(window.location.search);
+            const estado = params.get("estado");
+            const proveedor = params.get("proveedor");
+
+            if (!estado || !proveedor) {
+                return;
+            }
+
+            if (estado === "ok") {
+                mostrarAlerta(`Connection established with ${proveedor.toUpperCase()} successfully!`, "success");
+            } else if (estado === "error") {
+                mostrarAlerta(`Could not authorize access with ${proveedor.toUpperCase()}.`, "error");
+            }
+
+            // Clean OAuth parameters from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        async function iniciarPagina() {
+            mostrarMensajeOAuth();
+            const autenticado = await cargarUsuario();
+
+            if (!autenticado) {
+                return;
+            }
+
+            await cargarProveedores();
+            await cargarDispositivos();
+        }
+
+        // Custom Device modal actions
+        function abrirCustomDeviceModal() {
+            document.getElementById("customDeviceModal").style.display = "flex";
+            document.getElementById("devicePayload").value = "";
+            document.getElementById("modalError").style.display = "none";
+            document.body.style.overflow = "hidden";
+        }
+
+        function cerrarCustomDeviceModal() {
+            document.getElementById("customDeviceModal").style.display = "none";
+            document.body.style.overflow = "auto";
+        }
+
+        function cargarPlantillaFHIR() {
+            const template = {
+                "resourceType": "Device",
+                "modelNumber": "Custom Blood Pressure Monitor",
+                "status": "active",
+                "identifier": [
+                    {
+                        "system": "http://customdevice.com/id",
+                        "value": "custom-bpm-123"
+                    }
+                ]
+            };
+            document.getElementById("devicePayload").value = JSON.stringify(template, null, 4);
+            document.getElementById("modalError").style.display = "none";
+        }
+
+        function cargarPlantillaJSON() {
+            const template = {
+                "name": "Custom Fitness Scale",
+                "external_id": "custom-scale-456",
+                "active": true
+            };
+            document.getElementById("devicePayload").value = JSON.stringify(template, null, 4);
+            document.getElementById("modalError").style.display = "none";
+        }
+
+        async function registrarDispositivoCustomSubmit() {
+            const token = localStorage.getItem("access_token");
+            const payloadStr = document.getElementById("devicePayload").value.trim();
+            const modalError = document.getElementById("modalError");
+
+            if (!payloadStr) {
+                modalError.innerText = "Payload cannot be empty.";
+                modalError.style.display = "block";
+                return;
+            }
+
+            let parsedPayload;
+            try {
+                parsedPayload = JSON.parse(payloadStr);
+            } catch (e) {
+                modalError.innerText = "Invalid JSON syntax.";
+                modalError.style.display = "block";
+                return;
+            }
+
+            modalError.style.display = "none";
+
+            try {
+                const response = await fetch("/dispositivos/custom", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + token
+                    },
+                    body: JSON.stringify(parsedPayload)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    modalError.innerText = data.detail || "Error registering device.";
+                    modalError.style.display = "block";
+                    return;
+                }
+
+                cerrarCustomDeviceModal();
+                mostrarAlerta(data.message || "Device registered successfully.", "success");
+                
+                // Refresh connected devices list
+                await cargarDispositivos();
+
+            } catch (e) {
+                console.error(e);
+                modalError.innerText = "Network error. Failed to reach backend server.";
+                modalError.style.display = "block";
+            }
+        }
+
+        // Run
+        iniciarPagina();
+    </script>
+
+    <!-- Custom Device Modal -->
+    <div id="customDeviceModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 15, 25, 0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 1000; justify-content: center; align-items: center; padding: 20px;">
+        <div class="glass-panel" style="width: 100%; max-width: 600px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 30px; border-radius: var(--radius-lg); position: relative;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 15px;">
+                <div>
+                    <h2 style="font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-laptop-medical" style="color: var(--accent-cyan);"></i>
+                        <span>Register Custom Device</span>
+                    </h2>
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Submit a FHIR Device resource or a plain JSON payload.</p>
+                </div>
+                <button onclick="cerrarCustomDeviceModal()" style="background: transparent; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; transition: var(--transition-fast);">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                <button class="btn btn-secondary" onclick="cargarPlantillaFHIR()" style="padding: 8px 12px; font-size: 0.8rem; width: auto;">
+                    <i class="fa-solid fa-file-code"></i> Load FHIR Template
+                </button>
+                <button class="btn btn-secondary" onclick="cargarPlantillaJSON()" style="padding: 8px 12px; font-size: 0.8rem; width: auto;">
+                    <i class="fa-solid fa-braces-asterisk"></i> Load JSON Template
+                </button>
+            </div>
+            
+            <div style="flex-grow: 1; margin-bottom: 20px; display: flex; flex-direction: column; overflow: hidden;">
+                <label class="form-label" for="devicePayload" style="margin-bottom: 8px;">JSON / FHIR Payload</label>
+                <textarea id="devicePayload" style="flex-grow: 1; min-height: 250px; background: rgba(17, 24, 39, 0.9); border: 1px solid var(--card-border); border-radius: var(--radius-md); color: #a5f3fc; padding: 15px; font-family: 'Courier New', Courier, monospace; font-size: 0.85rem; resize: none; outline: none; transition: var(--transition-fast);" placeholder="Paste your payload here..."></textarea>
+                <div id="modalError" style="color: var(--accent-rose); font-size: 0.85rem; margin-top: 8px; display: none;"></div>
+            </div>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--card-border); padding-top: 15px;">
+                <button class="btn btn-secondary" onclick="cerrarCustomDeviceModal()" style="width: auto;">
+                    Cancel
+                </button>
+                <button class="btn btn-primary" onclick="registrarDispositivoCustomSubmit()" style="width: auto;">
+                    <i class="fa-solid fa-circle-check"></i> Register Device
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

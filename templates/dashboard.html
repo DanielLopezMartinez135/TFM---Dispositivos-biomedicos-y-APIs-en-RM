@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Biometric API</title>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="dashboard-wrapper">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div>
+                <!-- Logo -->
+                <div class="logo-container">
+                    <div class="logo-icon">
+                        <i class="fa-solid fa-heart-pulse"></i>
+                    </div>
+                    <div class="logo-text">Biometric API</div>
+                </div>
+
+                <!-- Nav Menu -->
+                <nav>
+                    <ul class="nav-menu">
+                        <li>
+                            <a class="nav-link active" href="/dashboard">
+                                <i class="fa-solid fa-chart-pie"></i>
+                                <span>Dashboard</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a class="nav-link" href="/dispositivos">
+                                <i class="fa-solid fa-mobile-screen-button"></i>
+                                <span>Devices</span>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+
+            <!-- Logout button in Sidebar -->
+            <div>
+                <button class="btn btn-secondary" onclick="logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>Sign Out</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1>Dashboard</h1>
+                    <p style="color: var(--text-secondary); margin-top: 4px;">Monitor your vital signs and health metrics.</p>
+                </div>
+                
+                <!-- Active User Badge -->
+                <div class="user-profile">
+                    <div class="user-avatar" id="avatarLetter">U</div>
+                    <span class="user-name" id="usuario">Loading profile...</span>
+                </div>
+            </header>
+
+            <!-- Notification Alerts -->
+            <div id="alertBox" class="alert" style="display: none;"></div>
+
+            <!-- Top Actions -->
+            <div class="flex-actions" style="margin-top: 0; margin-bottom: 30px; justify-content: flex-start;">
+                <button class="btn btn-primary" id="btnSincronizar" onclick="obtenerMedidas()" style="width: auto;">
+                    <i class="fa-solid fa-arrows-rotate" id="syncIcon"></i>
+                    <span>Sync measurements</span>
+                </button>
+                <button class="btn btn-secondary" id="btnExportFHIR" onclick="exportarFHIR()" style="width: auto;">
+                    <i class="fa-solid fa-file-medical"></i>
+                    <span>Export FHIR Bundle</span>
+                </button>
+            </div>
+
+            <!-- Sync Time Info Label -->
+            <div class="sync-status-label" id="syncStatusLabel" style="font-size: 0.85rem; color: var(--text-secondary); margin-top: -15px; margin-bottom: 30px; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-regular fa-clock" style="color: var(--accent-cyan);"></i>
+                <span id="syncStatusText">Last update: Checking... | Next scheduled sync in: Checking...</span>
+            </div>
+
+            <!-- Metrics Grid -->
+            <section>
+                <h2 style="font-size: 1.25rem; margin-bottom: 20px;">Latest Measurements</h2>
+                <div class="metrics-grid" id="resultadoMedidas">
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 40px 0; color: var(--text-secondary);">
+                        <i class="fa-solid fa-circle-notch spin" style="font-size: 2rem; margin-bottom: 10px; color: var(--accent-cyan);"></i>
+                        <p>Loading latest measurements...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Chart Card Container -->
+            <section class="glass-panel chart-card fade-in" id="chartCard" style="display: none; margin-top: 30px;">
+                <div class="chart-header">
+                    <div>
+                        <h2 class="chart-title">Historical Evolution</h2>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Historical trend of your vital metrics.</p>
+                    </div>
+                    <!-- Dynamically rendered metric filter tabs -->
+                    <div class="chart-filters" id="chartFilters"></div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="biometricChart"></canvas>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // Metric visualization config mapping
+        const metricConfigs = {
+            "peso": { title: "Body Weight", icon: "fa-scale-balanced", class: "weight" },
+            "frecuencia_cardiaca": { title: "Heart Rate", icon: "fa-heart-pulse", class: "heart-rate" },
+            "presion_arterial": { title: "Blood Pressure", icon: "fa-stethoscope", class: "blood-pressure" },
+            "presion_diastolica": { title: "Diastolic Pressure", icon: "fa-stethoscope", class: "blood-pressure" },
+            "presion_sistolica": { title: "Systolic Pressure", icon: "fa-stethoscope", class: "blood-pressure" },
+            "default": { title: "Biometric Metric", icon: "fa-chart-line", class: "active-devices" }
+        };
+
+        const metricNamesMap = {
+            "peso": "Body Weight",
+            "frecuencia_cardiaca": "Heart Rate",
+            "presion_diastolica": "Diastolic Pressure",
+            "presion_sistolica": "Systolic Pressure",
+            "presion_arterial": "Blood Pressure"
+        };
+
+        function obtenerNombreAmigable(metricaOriginal) {
+            const key = metricaOriginal.toLowerCase();
+            return metricNamesMap[key] || metricaOriginal.toUpperCase();
+        }
+
+        let datosHistoricos = [];
+        let biometricChart = null;
+        let lastUpdateDate = null;
+
+        function actualizarEtiquetaSincronizacion() {
+            const textLabel = document.getElementById("syncStatusText");
+            if (!lastUpdateDate) {
+                textLabel.innerText = "Last update: Never | Next scheduled sync: Synchronizing soon...";
+                return;
+            }
+
+            const now = new Date();
+            const nextUpdateDate = new Date(lastUpdateDate.getTime() + 5 * 60 * 1000);
+            
+            const lastStr = lastUpdateDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            if (nextUpdateDate > now) {
+                const diffMs = nextUpdateDate - now;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                const countdownStr = `${diffMins}m ${diffSecs}s`;
+                
+                textLabel.innerText = `Last update: ${lastStr} | Next scheduled sync in: ${countdownStr}`;
+            } else {
+                textLabel.innerText = `Last update: ${lastStr} | Next scheduled sync: In progress / Soon`;
+            }
+        }
+
+        async function cargarUsuario() {
+            const token = localStorage.getItem("access_token");
+
+            if (!token) {
+                window.location.href = "/login";
+                return;
+            }
+
+            try {
+                const response = await fetch("/auth/me", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    localStorage.removeItem("access_token");
+                    window.location.href = "/login";
+                    return;
+                }
+
+                const usuario = await response.json();
+                document.getElementById("usuario").innerText = usuario.username;
+                
+                // Set avatar letter
+                if (usuario.username && usuario.username.length > 0) {
+                    document.getElementById("avatarLetter").innerText = usuario.username[0].toUpperCase();
+                }
+            } catch (e) {
+                console.error("Error loading user profile:", e);
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem("access_token");
+            window.location.href = "/login";
+        }
+
+        function mostrarAlerta(texto, tipo = "success") {
+            const alertBox = document.getElementById("alertBox");
+            alertBox.innerText = texto;
+            alertBox.className = `alert alert-${tipo} fade-in`;
+            alertBox.style.display = "flex";
+
+            if (tipo !== "loading") {
+                setTimeout(() => {
+                    alertBox.style.display = "none";
+                }, 5000);
+            }
+        }
+
+        function ocultarAlerta() {
+            document.getElementById("alertBox").style.display = "none";
+        }
+
+        async function obtenerMedidas() {
+            const token = localStorage.getItem("access_token");
+            const syncIcon = document.getElementById("syncIcon");
+            const btnSincronizar = document.getElementById("btnSincronizar");
+
+            btnSincronizar.disabled = true;
+            syncIcon.classList.add("spin");
+            mostrarAlerta("Connecting and synchronizing measurements...", "loading");
+
+            try {
+                const response = await fetch("/medidas/sincronizar", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    mostrarAlerta("Could not sync new measurements from provider.", "error");
+                    return;
+                }
+
+                const syncData = await response.json();
+                lastUpdateDate = new Date();
+                actualizarEtiquetaSincronizacion();
+                
+                // Refresh views
+                await cargarUltimasMedidas();
+                await cargarHistorico();
+
+                mostrarAlerta(syncData.message || "Measurements synchronized successfully.", "success");
+            } catch (e) {
+                console.error("Error syncing measurements:", e);
+                mostrarAlerta("An error occurred while syncing with the biometric provider.", "error");
+            } finally {
+                btnSincronizar.disabled = false;
+                syncIcon.classList.remove("spin");
+            }
+        }
+
+        async function cargarUltimasMedidas() {
+            const token = localStorage.getItem("access_token");
+            const contenedor = document.getElementById("resultadoMedidas");
+
+            try {
+                const response = await fetch("/medidas/ultimas", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    // Check if 404 (No measurements yet)
+                    if (response.status === 404) {
+                        contenedor.innerHTML = `
+                            <div class="empty-state fade-in" style="grid-column: 1 / -1;">
+                                <div class="empty-state-icon"><i class="fa-solid fa-heart-crack"></i></div>
+                                <h3>No Data Available</h3>
+                                <p style="margin-top: 8px;">No measurements found. Click "Sync measurements" or connect a device.</p>
+                            </div>
+                        `;
+                    } else {
+                        contenedor.innerHTML = `
+                            <div class="empty-state fade-in" style="grid-column: 1 / -1; color: var(--accent-rose);">
+                                <div class="empty-state-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+                                <h3>Error Loading Measurements</h3>
+                                <p style="margin-top: 8px;">Could not retrieve latest biometric metrics.</p>
+                            </div>
+                        `;
+                    }
+                    return;
+                }
+
+                const medidas = await response.json();
+
+                if (medidas.length === 0) {
+                    contenedor.innerHTML = `
+                        <div class="empty-state fade-in" style="grid-column: 1 / -1;">
+                            <div class="empty-state-icon"><i class="fa-solid fa-heart-crack"></i></div>
+                            <h3>No Data Available</h3>
+                            <p style="margin-top: 8px;">No measurements found. Click "Sync measurements" or connect a device.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = "";
+                medidas.forEach(m => {
+                    const key = m.metric.toLowerCase();
+                    const config = metricConfigs[key] || metricConfigs["default"];
+                    const dateFormatted = new Date(m.measurement_date).toLocaleString('en-US', {
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+
+                    html += `
+                        <div class="glass-panel metric-card ${config.class} fade-in">
+                            <div class="metric-header">
+                                <span>${config.title}</span>
+                                <div class="metric-icon-box">
+                                    <i class="fa-solid ${config.icon}"></i>
+                                </div>
+                            </div>
+                            <div class="metric-value-wrapper">
+                                <span class="metric-value">${m.value}</span>
+                                <span class="metric-unit">${m.unit || ""}</span>
+                            </div>
+                            <div class="metric-footer">
+                                <i class="fa-regular fa-clock"></i>
+                                <span>${dateFormatted} (${m.device})</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                contenedor.innerHTML = html;
+                lastUpdateDate = new Date();
+                actualizarEtiquetaSincronizacion();
+
+            } catch (e) {
+                console.error("Error loading latest measures:", e);
+                contenedor.innerHTML = `
+                    <div class="empty-state fade-in" style="grid-column: 1 / -1; color: var(--accent-rose);">
+                        <div class="empty-state-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+                        <h3>Network Error</h3>
+                        <p style="margin-top: 8px;">Could not connect to the biometric API.</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function cargarHistorico() {
+            const token = localStorage.getItem("access_token");
+
+            try {
+                const response = await fetch("/medidas/historico", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+
+                if (!response.ok) {
+                    document.getElementById("chartCard").style.display = "none";
+                    return;
+                }
+
+                datosHistoricos = await response.json();
+
+                if (datosHistoricos.length === 0) {
+                    document.getElementById("chartCard").style.display = "none";
+                    return;
+                }
+
+                document.getElementById("chartCard").style.display = "block";
+
+                // Get unique metrics
+                const metricas = [...new Set(datosHistoricos.map(d => d.metric))];
+
+                // Render filter buttons
+                const filterContainer = document.getElementById("chartFilters");
+                filterContainer.innerHTML = "";
+
+                metricas.forEach((metrica, index) => {
+                    const btn = document.createElement("button");
+                    btn.className = "filter-btn" + (index === 0 ? " active" : "");
+                    btn.innerText = obtenerNombreAmigable(metrica);
+                    btn.onclick = () => {
+                        document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+                        btn.classList.add("active");
+                        actualizarGrafico(metrica);
+                    };
+                    filterContainer.appendChild(btn);
+                });
+
+                // Initial render with first metric
+                if (metricas.length > 0) {
+                    actualizarGrafico(metricas[0]);
+                }
+            } catch (e) {
+                console.error("Error loading history:", e);
+                document.getElementById("chartCard").style.display = "none";
+            }
+        }
+
+        function actualizarGrafico(nombreMetrica) {
+            const datosFiltrados = datosHistoricos
+                .filter(d => d.metric === nombreMetrica)
+                .sort((a, b) => new Date(a.measurement_date) - new Date(b.measurement_date));
+
+            const labels = datosFiltrados.map(d => {
+                return new Date(d.measurement_date).toLocaleDateString('en-US', {
+                    day: '2-digit',
+                    month: 'short'
+                });
+            });
+
+            const valores = datosFiltrados.map(d => d.value);
+            const unidad = datosFiltrados[0]?.unit || "";
+
+            const ctx = document.getElementById("biometricChart").getContext("2d");
+
+            if (biometricChart) {
+                biometricChart.destroy();
+            }
+
+            // Create gradient gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(6, 182, 212, 0.35)');
+            gradient.addColorStop(1, 'rgba(6, 182, 212, 0.00)');
+
+            biometricChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: obtenerNombreAmigable(nombreMetrica) + ` (${unidad})`,
+                        data: valores,
+                        borderColor: '#06b6d4',
+                        borderWidth: 3,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.35,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: '#06b6d4',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#111827',
+                            titleColor: '#ffffff',
+                            bodyColor: '#f3f4f6',
+                            borderColor: 'rgba(255,255,255,0.08)',
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: false,
+                            bodyFont: {
+                                family: 'Inter'
+                            },
+                            titleFont: {
+                                family: 'Inter',
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)'
+                            },
+                            ticks: {
+                                color: '#9ca3af',
+                                font: {
+                                    family: 'Inter',
+                                    size: 11
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#9ca3af',
+                                font: {
+                                    family: 'Inter',
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // FHIR Modal actions
+        function abrirFHIRModal() {
+            document.getElementById("fhirModal").style.display = "flex";
+            document.body.style.overflow = "hidden";
+        }
+
+        function cerrarFHIRModal() {
+            document.getElementById("fhirModal").style.display = "none";
+            document.body.style.overflow = "auto";
+        }
+
+        let rawFhirData = null;
+
+        async function exportarFHIR() {
+            const token = localStorage.getItem("access_token");
+            const fhirCode = document.getElementById("fhirCode");
+            const copyText = document.getElementById("copyText");
+            const copyIcon = document.getElementById("copyIcon");
+            
+            copyText.innerText = "Copy JSON";
+            copyIcon.className = "fa-regular fa-copy";
+            
+            abrirFHIRModal();
+            fhirCode.innerText = "Loading standard FHIR observations bundle...";
+            
+            try {
+                const response = await fetch("/fhir/Observation", {
+                    headers: {
+                        "Authorization": "Bearer " + token
+                    }
+                });
+                
+                if (!response.ok) {
+                    fhirCode.innerText = "Error: Could not retrieve FHIR observations.";
+                    return;
+                }
+                
+                rawFhirData = await response.json();
+                fhirCode.innerText = JSON.stringify(rawFhirData, null, 4);
+                
+            } catch (e) {
+                console.error(e);
+                fhirCode.innerText = "Network Error: Failed to fetch observations bundle.";
+            }
+        }
+
+        function copiarFHIR() {
+            if (!rawFhirData) return;
+            
+            const fhirCode = document.getElementById("fhirCode").innerText;
+            navigator.clipboard.writeText(fhirCode).then(() => {
+                const copyText = document.getElementById("copyText");
+                const copyIcon = document.getElementById("copyIcon");
+                
+                copyText.innerText = "Copied!";
+                copyIcon.className = "fa-solid fa-check";
+                
+                setTimeout(() => {
+                    copyText.innerText = "Copy JSON";
+                    copyIcon.className = "fa-regular fa-copy";
+                }, 3000);
+            }).catch(err => {
+                console.error("Failed to copy text: ", err);
+            });
+        }
+
+        function descargarFHIR() {
+            if (!rawFhirData) return;
+            
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(rawFhirData, null, 4));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "fhir_observations.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        // Initialize Page
+        cargarUsuario();
+        cargarUltimasMedidas();
+        cargarHistorico();
+
+        // Refresh latest measures every minute
+        setInterval(cargarUltimasMedidas, 60000);
+
+        // Update sync label countdown every second
+        setInterval(actualizarEtiquetaSincronizacion, 1000);
+    </script>
+
+    <!-- FHIR Export Modal -->
+    <div id="fhirModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11, 15, 25, 0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 1000; justify-content: center; align-items: center; padding: 20px;">
+        <div class="glass-panel" style="width: 100%; max-width: 800px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; padding: 30px; border-radius: var(--radius-lg); position: relative;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 15px;">
+                <div>
+                    <h2 style="font-size: 1.3rem; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-file-code" style="color: var(--accent-cyan);"></i>
+                        <span>FHIR Observation Bundle</span>
+                    </h2>
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">Standard HL7/FHIR observation resources for your patient profile.</p>
+                </div>
+                <button onclick="cerrarFHIRModal()" style="background: transparent; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; transition: var(--transition-fast);">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div style="flex-grow: 1; overflow-y: auto; background: rgba(17, 24, 39, 0.9); border-radius: var(--radius-md); padding: 20px; border: 1px solid var(--card-border); margin-bottom: 20px;">
+                <pre><code id="fhirCode" style="font-family: 'Courier New', Courier, monospace; font-size: 0.85rem; color: #a5f3fc; white-space: pre-wrap; word-break: break-all;">Loading FHIR data...</code></pre>
+            </div>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--card-border); padding-top: 15px; flex-wrap: wrap;">
+                <button class="btn btn-secondary" onclick="copiarFHIR()" style="width: auto;">
+                    <i class="fa-regular fa-copy" id="copyIcon"></i>
+                    <span id="copyText">Copy JSON</span>
+                </button>
+                <button class="btn btn-primary" onclick="descargarFHIR()" style="width: auto;">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Download JSON</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

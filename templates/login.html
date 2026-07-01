@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - Biometric API</title>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="auth-wrapper">
+        <div class="glass-panel auth-card fade-in">
+            <!-- Tabs Toggle between Login & Register -->
+            <div class="tabs-header">
+                <button class="tab-btn active" id="tabLogin" onclick="setMode('login')">Sign In</button>
+                <button class="tab-btn" id="tabRegister" onclick="setMode('register')">Register</button>
+            </div>
+
+            <!-- Logo -->
+            <div class="logo-container" style="justify-content: center; margin-bottom: 30px;">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-heart-pulse"></i>
+                </div>
+                <div class="logo-text">Biometric API</div>
+            </div>
+
+            <!-- Single Form for Login / Registration -->
+            <form id="authForm">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-user input-icon"></i>
+                        <input class="form-input" type="text" id="username" placeholder="Enter your username" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-lock input-icon"></i>
+                        <input class="form-input" type="password" id="password" placeholder="••••••••" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="btnSubmit" style="margin-top: 10px;">
+                    <span>Sign In</span>
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                </button>
+            </form>
+
+            <div id="mensaje" style="margin-top: 20px; display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const mensaje = document.getElementById("mensaje");
+        let mode = "login";
+
+        function setMode(newMode) {
+            mode = newMode;
+            const tabLogin = document.getElementById("tabLogin");
+            const tabRegister = document.getElementById("tabRegister");
+            const btnSubmit = document.getElementById("btnSubmit");
+
+            ocultarMensaje();
+
+            if (mode === "login") {
+                tabLogin.classList.add("active");
+                tabRegister.classList.remove("active");
+                btnSubmit.innerHTML = '<span>Sign In</span> <i class="fa-solid fa-arrow-right-to-bracket"></i>';
+            } else {
+                tabLogin.classList.remove("active");
+                tabRegister.classList.add("active");
+                btnSubmit.innerHTML = '<span>Register</span> <i class="fa-solid fa-user-plus"></i>';
+            }
+        }
+
+        function obtenerCredenciales() {
+            const username = document.getElementById("username").value.trim();
+            const password = document.getElementById("password").value;
+
+            return { username, password };
+        }
+
+        function mostrarMensaje(texto, esError = false) {
+            mensaje.innerText = texto;
+            mensaje.className = "alert " + (esError ? "alert-error" : "alert-success") + " fade-in";
+            mensaje.style.display = "flex";
+        }
+
+        function ocultarMensaje() {
+            mensaje.style.display = "none";
+        }
+
+        document.getElementById("authForm").addEventListener("submit", async function(e) {
+            e.preventDefault();
+
+            const { username, password } = obtenerCredenciales();
+
+            if (!username || !password) {
+                mostrarMensaje("Enter username and password", true);
+                return;
+            }
+
+            if (mode === "login") {
+                // Login action
+                const formData = new URLSearchParams();
+                formData.append("username", username);
+                formData.append("password", password);
+
+                mostrarMensaje("Signing in...", false);
+                mensaje.className = "alert alert-loading";
+
+                const response = await fetch("/auth/login", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    mostrarMensaje("Incorrect username or password", true);
+                    return;
+                }
+
+                const data = await response.json();
+                localStorage.setItem("access_token", data.access_token);
+                window.location.href = "/dashboard";
+
+            } else {
+                // Registration action
+                const params = new URLSearchParams();
+                params.append("username", username);
+                params.append("password", password);
+
+                mostrarMensaje("Registering user...", false);
+                mensaje.className = "alert alert-loading";
+
+                const response = await fetch("/auth/registro?" + params.toString(), {
+                    method: "POST"
+                });
+
+                if (!response.ok) {
+                    let errorText = "Could not register user";
+
+                    try {
+                        const errorData = await response.json();
+                        errorText = errorData.detail || errorText;
+                    } catch (e) {
+                        // Si no viene JSON, dejamos el mensaje genérico
+                    }
+
+                    mostrarMensaje(errorText, true);
+                    return;
+                }
+
+                mostrarMensaje("User registered successfully. You can now sign in.");
+                // Switch back to login mode automatically
+                setTimeout(() => {
+                    setMode("login");
+                }, 1500);
+            }
+        });
+    </script>
+</body>
+</html>

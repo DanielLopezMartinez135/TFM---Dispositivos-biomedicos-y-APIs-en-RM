@@ -1,0 +1,15 @@
+{
+  "name": "com.vitals.vr",
+  "version": "1.0.0",
+  "displayName": "Vitals VR/AR Telemetry",
+  "description": "A modular plugin for Unity to fetch and display patient biomedical metrics from the Vitals API in VR and AR settings.",
+  "unity": "2021.3",
+  "author": {
+    "name": "Vitals Developer",
+    "email": "developer@vitals.com"
+  },
+  "dependencies": {
+    "com.unity.textmeshpro": "3.0.6",
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  }
+}
